@@ -62,7 +62,7 @@ const BLOCK_SIZE = 36;
 const BLOCK_BACKGROUND = "#292929";
 
 const GRAVITY_SPEED = 1;
-const GRAVITY_ACCELERATIOON = 0.00001;
+const GRAVITY_ACCELERATION = 0.00001;
 const GRAVITY_THRESHOLD = 1000; //after reaching this progress, the piece moves down
 
 const GRID_COLS = 10;
@@ -83,6 +83,7 @@ const KEY_TO_INPUT_TYPE = {
   ArrowUp: "rotate",
   " ": "hardDrop",
   r: "restart",
+  Escape: "pause",
 };
 
 const GRID_WIDTH = GRID_COLS * BLOCK_SIZE;
@@ -100,6 +101,48 @@ const BLOCK_EMPTY = -1;
 const INPUT_STATE_INITIAL = 0;
 const INPUT_STATE_CHARGING = 1;
 const INPUT_STATE_REPEATING = 2;
+
+const Buttons = {
+  resume: {
+    x: GRID_WIDTH / 2 - 60,
+    y: GRID_HEIGHT / 2 + 20,
+    width: 120,
+    height: 30,
+    text: "Resume",
+  },
+  replay: {
+    x: GRID_WIDTH / 2 - 60,
+    y: GRID_HEIGHT / 2 + 60,
+    width: 120,
+    height: 30,
+    text: "Replay",
+  },
+  howToPlay: {
+    x: GRID_WIDTH / 2 - 60,
+    y: GRID_HEIGHT / 2 + 100,
+    width: 120,
+    height: 30,
+    text: "How To Play",
+  },
+};
+
+function drawButton(ctx, button) {
+  ctx.font = "16px Arial";
+  ctx.fillStyle = "#333";
+  ctx.fillRect(button.x, button.y, button.width, button.height);
+
+  ctx.strokeStyle = "#fff";
+  ctx.strokeRect(button.x, button.y, button.width, button.height);
+
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(
+    button.text,
+    button.x + button.width / 2,
+    button.y + button.height / 2,
+  );
+}
 
 function initCanvas() {
   const canvas = document.getElementById("game");
@@ -143,7 +186,12 @@ function getInitialStatte() {
 
   return {
     isGameOver: false,
+    isPause: false,
+    showHowToPlay: false,
     score: 0,
+    level: 1,
+    totalClearLines: 0,
+    highScore: 0,
     gravity: {
       progress: 0,
       speed: GRAVITY_SPEED,
@@ -294,11 +342,25 @@ function clearCompleteLines(grid) {
   return clearedLines;
 }
 
+function scoreCountSystem(clearedLines, level) {
+  return clearedLines * 100 * level;
+}
+
 function handleCurrentPieceLanding(state) {
   attachToGrid(state.grid, state.currentPiece);
 
   const clearedLines = clearCompleteLines(state.grid);
-  state.score += clearedLines * 10; //Score multiplier: 10
+
+  state.totalClearLines += clearedLines;
+
+  state.level = Math.max(
+    state.level,
+    Math.floor((state.totalClearLines + 10) / 10),
+  );
+
+  state.score += scoreCountSystem(clearedLines, state.level);
+
+  if (state.score > state.highScore) state.highScore = state.score;
 
   const newPiece = createCurrentPiece(state.nextShapeId);
   const { shape, position } = newPiece;
@@ -308,6 +370,8 @@ function handleCurrentPieceLanding(state) {
     state.nextShapeId = getRandomShapeId();
   } else {
     state.isGameOver = true;
+    state.isPause = false;
+    state.showHowToPlay = false;
   }
 }
 
@@ -323,9 +387,23 @@ function moveCurrentPieceDown(state) {
   return didMove;
 }
 
+function getDropInterval(level) {
+  return Math.pow(0.8 - (level - 1) * 0.007, level - 1);
+}
+
+function getGravitySpeedMultiplier(level) {
+  if (level <= 1) return 1.0;
+  let baseInterval = Math.pow(0.8 - (level - 1) * 0.007, level - 1);
+  baseInterval = Math.max(0.08, Math.min(1.0, baseInterval));
+  return 1.0 / baseInterval;
+}
+
 function updateGravity(state, dt) {
-  state.gravity.speed += GRAVITY_ACCELERATIOON * dt;
-  state.gravity.progress += state.gravity.speed * dt;
+  const levelMultiplier = getGravitySpeedMultiplier(state.level);
+  state.gravity.speed += GRAVITY_ACCELERATION * dt;
+  let effectiveSpeed = state.gravity.speed * levelMultiplier;
+  effectiveSpeed = Math.min(effectiveSpeed, 18.0);
+  state.gravity.progress += effectiveSpeed * dt;
 
   if (state.gravity.progress >= GRAVITY_THRESHOLD) {
     moveCurrentPieceDown(state);
@@ -333,10 +411,28 @@ function updateGravity(state, dt) {
 }
 
 function resetGameState(state) {
-  Object.assign(state, getInitialStatte());
+  Object.assign(state, {
+    ...getInitialStatte(),
+    highScore: state.highScore,
+  });
 }
 
 function update(state, inputs, dt) {
+  if (inputs.pause) {
+    delete inputs.pause;
+
+    if (state.showHowToPlay) {
+      state.showHowToPlay = false;
+      return;
+    }
+
+    if (!state.isGameOver) {
+      state.isPause = !state.isPause;
+    }
+  }
+
+  if (state.isPause) return;
+
   if (state.isGameOver) {
     if (inputs.restart) {
       resetGameState(state);
@@ -412,6 +508,30 @@ function render(ctx, state) {
     SIDEBAR_CONTENT_Y + BLOCK_SIZE * 6,
   );
 
+  ctx.fillText("Level:", SIDEBAR_CONTENT_X, SIDEBAR_CONTENT_Y + BLOCK_SIZE * 9);
+  ctx.fillText(
+    state.level,
+    SIDEBAR_CONTENT_X,
+    SIDEBAR_CONTENT_Y + BLOCK_SIZE * 10,
+  );
+
+  ctx.fillText(
+    "Highest",
+    SIDEBAR_CONTENT_X,
+    SIDEBAR_CONTENT_Y + BLOCK_SIZE * 13,
+  );
+
+  ctx.fillText(
+    "Score:",
+    SIDEBAR_CONTENT_X,
+    SIDEBAR_CONTENT_Y + BLOCK_SIZE * 14,
+  );
+  ctx.fillText(
+    state.highScore,
+    SIDEBAR_CONTENT_X,
+    SIDEBAR_CONTENT_Y + BLOCK_SIZE * 15,
+  );
+
   if (state.isGameOver) {
     ctx.fillStyle = COLOR_GAME_OVER_OVERLAY;
     ctx.fillRect(0, 0, GRID_WIDTH, GRID_HEIGHT);
@@ -420,6 +540,41 @@ function render(ctx, state) {
     ctx.textAlign = "center";
     ctx.textBaseLine = "middle";
     ctx.fillText("Game Over!", GRID_WIDTH / 2, GRID_HEIGHT / 2);
+
+    drawButton(ctx, Buttons.replay);
+    drawButton(ctx, Buttons.howToPlay);
+  }
+
+  if (state.isPause) {
+    ctx.fillStyle = COLOR_GAME_OVER_OVERLAY;
+    ctx.fillRect(0, 0, GRID_WIDTH, GRID_HEIGHT);
+
+    ctx.fillStyle = COLOR_FONT;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Game Paused!", GRID_WIDTH / 2, GRID_HEIGHT / 2 - 40);
+
+    drawButton(ctx, Buttons.resume);
+    drawButton(ctx, Buttons.replay);
+    drawButton(ctx, Buttons.howToPlay);
+  }
+
+  if (state.showHowToPlay) {
+    ctx.fillStyle = "rgba(0,0,0,0.9)";
+    ctx.fillRect(20, 20, GRID_WIDTH - 40, GRID_HEIGHT - 40);
+
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "left";
+
+    ctx.fillText("Controls:", 40, 60);
+    ctx.fillText("← → : Move", 40, 90);
+    ctx.fillText("↓ : Soft Drop", 40, 120);
+    ctx.fillText("↑ : Rotate", 40, 150);
+    ctx.fillText("Space : Hard Drop", 40, 180);
+    ctx.fillText("ESC : Pause / Resume", 40, 210);
+
+    ctx.textAlign = "center";
+    ctx.fillText("Click anywhere to close", GRID_WIDTH / 2, GRID_HEIGHT - 40);
   }
 }
 
@@ -439,12 +594,56 @@ function startCollectingInputs(inputs) {
   window.addEventListener("keyup", (e) => handleKeyEvent(e, undefined));
 }
 
+function isInsideButton(x, y, button) {
+  return (
+    x >= button.x &&
+    x <= button.x + button.width &&
+    y >= button.y &&
+    y <= button.y + button.height
+  );
+}
+
 function main() {
   const ctx = initCanvas();
+  const canvas = ctx.canvas;
+
   const state = getInitialStatte();
   const inputs = {};
 
   startCollectingInputs(inputs);
+
+  canvas.addEventListener("click", (e) => {
+    const rect = canvas.getBoundingClientRect();
+
+    const x = ((e.clientX - rect.left) / rect.width) * CANVAS_WIDTH;
+    const y = ((e.clientY - rect.top) / rect.height) * CANVAS_HEIGHT;
+
+    if (state.showHowToPlay) {
+      state.showHowToPlay = false;
+      return;
+    }
+
+    if (isInsideButton(x, y, Buttons.resume)) {
+      state.isPause = false;
+    }
+
+    if (isInsideButton(x, y, Buttons.replay)) {
+      resetGameState(state);
+    }
+
+    if (isInsideButton(x, y, Buttons.howToPlay)) {
+      state.showHowToPlay = true;
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (!state.isGameOver) {
+        state.isPause = true;
+        state.showHowToPlay = false;
+      }
+    }
+  });
 
   let previousTime = performance.now();
 
