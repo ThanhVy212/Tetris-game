@@ -612,6 +612,15 @@ function main() {
 
   startCollectingInputs(inputs);
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (!state.isGameOver) {
+        state.isPause = true;
+        state.showHowToPlay = false;
+      }
+    }
+  });
+
   canvas.addEventListener("click", (e) => {
     const rect = canvas.getBoundingClientRect();
 
@@ -623,6 +632,8 @@ function main() {
       return;
     }
 
+    if (!state.isPause && !state.isGameOver) return;
+
     if (isInsideButton(x, y, Buttons.resume)) {
       state.isPause = false;
     }
@@ -633,15 +644,6 @@ function main() {
 
     if (isInsideButton(x, y, Buttons.howToPlay)) {
       state.showHowToPlay = true;
-    }
-  });
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      if (!state.isGameOver) {
-        state.isPause = true;
-        state.showHowToPlay = false;
-      }
     }
   });
 
